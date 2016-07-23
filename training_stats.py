@@ -1,0 +1,1 @@
+import pickleimport osold_file_name = Nonedef save_cost(cost_dict, base_name):	global old_file_name	pickle.dump(cost_dict, open(base_name+'.pkl','wb'))	if old_file_name is not None:		os.system('rm '+old_file_name)	old_file_name = base_name+'.pkl'
