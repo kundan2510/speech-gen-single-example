@@ -8,7 +8,7 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from layers import *
 
 from wav_utils import write_audio_file
-from models import *
+from generic_utils import *
 
 
 def round_to(x, y):
@@ -20,6 +20,7 @@ n_files = 1000
 GRAD_CLIP = 1.0
 BITRATE = 16000
 DATA_PATH = "/Tmp/kumarkun/blizzard_small/flac"
+OUTPUT_DIR = "/Tmp/kumarkun/generate_from_a_few"
 BATCH_SIZE = 2
 INPUT_LEN = 128000
 SEQ_LEN = INPUT_LEN
@@ -140,13 +141,15 @@ print batch.max()
 # for i in range(BATCH_SIZE):
 # 	write_audio_file( "sample{}".format(i), BITRATE, batch[i])
 
+create_folder_if_not_there(OUTPUT_DIR)
+
 for i in range(10000):
 	cost = train_fn(batch)
-	print cost
+	print "iteration {}, cost {}".format(i, cost)
 	output = output_sound_var.get_value()
 	if i+1 % 500:
 		for j in range(len(output)):
-			write_audio_file("output_{}_{}".format(j, cost),  BITRATE, output[j])
+			write_audio_file("{}/output_{}_{}".format(OUTPUT_DIR, j, cost),  BITRATE, output[j])
 
 
 
