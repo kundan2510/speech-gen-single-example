@@ -21,10 +21,11 @@ GRAD_CLIP = 1.0
 BITRATE = 16000
 DATA_PATH = "/Tmp/kumarkun/blizzard_small/flac"
 OUTPUT_DIR = "/Tmp/kumarkun/generate_from_a_few"
-BATCH_SIZE = 2
+BATCH_SIZE = 1
 INPUT_LEN = 128000
 SEQ_LEN = INPUT_LEN
 MODE = "TIME_INVARIANT"
+OTHER_INFO = "8_8_relu_"
 params = []
 other_params = []
 
@@ -45,8 +46,8 @@ output_sound = T.ones_like(input_sound_)*output_sound_var
 input_sound = input_sound_.dimshuffle(0,'x', 1, 'x') # shape = (batch_size, 1, input_length, 1)
 output_sound = output_sound.dimshuffle(0,'x', 1, 'x') # shape = (batch_size, 1, input_length, 1)
 
-# filter_sizes = [3, 5, 11, 21, 41, 81, 161, 321]
-filter_sizes = [3, 5, 11, 21]
+filter_sizes = [3, 5, 11, 21, 41, 81, 161, 321]
+# filter_sizes = [3, 5, 11, 21]
 
 conv_out_input = []
 conv_out_output = []
@@ -68,6 +69,9 @@ for filter_size in filter_sizes:
 
 input_feature_map = T.concatenate(conv_out_input, axis= 1) # (batch_size, 1024, input_length, 1)
 output_feature_map = T.concatenate(conv_out_output, axis= 1) # (batch_size, 1024, input_length, 1)
+
+input_feature_map = T.nnet.relu(input_feature_map)
+output_feature_map = T.nnet.relu(output_feature_map)
 
 input_features_reshaped = input_feature_map.dimshuffle(0,2,1,3)
 output_features_reshaped = output_feature_map.dimshuffle(0,2,1,3)
@@ -106,7 +110,7 @@ else:
 	input_feature_map = dotted_input_feature_map
 	output_feature_map = dotted_output_feature_map
 
-cost = T.mean((input_feature_map - output_feature_map)*(input_feature_map - output_feature_map))
+cost = 0.001*T.mean((input_feature_map - output_feature_map)*(input_feature_map - output_feature_map))
 
 grads = T.grad(cost, wrt=params, disconnected_inputs='warn')
 grads = [T.clip(g, floatX(-GRAD_CLIP), floatX(GRAD_CLIP)) for g in grads]
@@ -135,21 +139,19 @@ for i, path in enumerate(batch_paths):
     assert(data.max() - data.min() > 0)
     batch[i, :len(data)] = (data - data.min())/(data.max() - data.min()) - 0.5
 
-print batch.min()
-print batch.max()
-
 # for i in range(BATCH_SIZE):
 # 	write_audio_file( "sample{}".format(i), BITRATE, batch[i])
 
 create_folder_if_not_there(OUTPUT_DIR)
 
-for i in range(10000):
+for i in range(50000):
 	cost = train_fn(batch)
 	print "iteration {}, cost {}".format(i, cost)
-	output = output_sound_var.get_value()
-	if i+1 % 500:
+	if (i+1) % 200 == 0:
+		output = output_sound_var.get_value()
+		print "Saving audio...."
 		for j in range(len(output)):
-			write_audio_file("{}/output_{}_{}".format(OUTPUT_DIR, j, cost),  BITRATE, output[j])
+			write_audio_file("{}/iter_{}_{}_{}_{}_{}".format(OUTPUT_DIR, MODE, i, OTHER_INFO, j, cost),  BITRATE, output[j])
 
 
 
