@@ -31,75 +31,22 @@ DIM = 5120
 
 POOL = False
 
-num_layers_filter_sizes = [
-				(2, 11),
-				(2, 51),
-				(2, 501), 
-				(2, 999), 
-				(2, 3999),
-				(2, 7999),
-				(3, 11),
-				(3, 99),
-				(3, 333),
-				(3, 1991),
-				(4, 11),
-				(4, 251),
-				(4, 501),
-				(4, 999),
-				(4, 999),
-				(5, 11),
-				(5, 51),
-				(5, 99),
-				(5, 399),
-				(5, 999),
-				(6, 5),
-				(6, 21),
-				(6, 41),
-				(7, 5),
-				(7, 21),
-				(7, 41),
-				(8, 3),
-				(8, 5),
-				(8, 11),
-				(8, 15),
-				(8, 31),
-				(9, 3),
-				(9, 7),
-				(6, 81),
-				(7, 81),
-				(8, 81),
-				(6, 239)
-				]
-
-# num_layers_filter_sizes = [
-# 					(1, 24001),
-# 					(1, 63999),
-# 					(1, 48001),
-# 					(2, 16001),
-# 					(3, 8001),
-# 					(4, 8001),
-# 					(5, 2001)
-# 				]
-
-# num_layers_filter_sizes = [
-# 					(1, 7999),
-# 					(1, 7997),
-# 					(1, 7991),
-# 					(1, 7951),
-# 					(1, 7001),
-# 					(1, 5001),
-# 					(1, 3001),
-# 					(1, 2001),
-# 					(1, 501),
-# 					(1)
-# 				]
+filter_sizes_all = [3, 5, 11, 21, 41, 81, 161, 321, 641, 1281, 2561, 8001, 15999]
 expn = 0
-for POOL in (False, True):
-	for num_layer, filter_size in num_layers_filter_sizes:
+
+for k in range(2):
+	for j in range(len(filter_sizes_all)):
+		if k == 0:
+			filter_sizes = filter_sizes_all[::-1][:j+1]
+		else:
+			filter_sizes = filter_sizes_all[:j+1]
+
+		DIM = (DIM//len(filter_sizes))*len(filter_sizes)
 
 		expn += 1
 
-		OTHER_INFO = "nl_{}_fs_{}_dim_{}_pool{}_exp_{}".format(num_layer, filter_size, DIM, POOL, expn)
+		filters_name = "_".join([str(f) for f in filter_sizes])
+		OTHER_INFO = "multiscale_fs_{}_dim_{}_exp_{}".format(filters_name, DIM, expn)
 		params = []
 		other_params = []
 
@@ -124,67 +71,32 @@ for POOL in (False, True):
 		# filter_sizes = [3, 5, 11, 21]
 
 
+
+	# filter_sizes = [3, 5, 11, 21]
+
 		conv_out_input = []
 		conv_out_output = []
 
-		curr_conv_out_input = input_sound
-		curr_conv_out_output = output_sound
-
-		for i in range(num_layer):
-			print "{}".format(1 if i == 0 else DIM)
+		for filter_size in filter_sizes:
 
 			current_filter = get_conv_2d_filter(
-							(DIM, 1 if i == 0 else DIM, filter_size,1), 
+							(DIM//len(filter_sizes), 1, filter_size,1), 
 							param_list = other_params, 
 							masktype = None, 
 							name = "filter_{}".format(filter_size)
 							)
 
-			curr_conv_out_input = T.nnet.relu(
-							T.nnet.conv2d(
-								curr_conv_out_input, 
-								current_filter, 
-								border_mode='valid'
-							)
-						)
+			curr_conv_out_input = T.nnet.conv2d(input_sound, current_filter, border_mode = 'valid') # shape = (batch_size, 128, input_length, 1)
+			curr_conv_out_output = T.nnet.conv2d(output_sound, current_filter, border_mode= 'valid') # shape = (batch_size, 128, input_length, 1)
 
-			curr_conv_out_output = T.signal.pool.pool_2d(
-					T.nnet.relu(
-							T.nnet.conv2d(
-								curr_conv_out_output, 
-								current_filter, 
-								border_mode='valid'
-							) 
-					),
-					(2,1),
-					ignore_border=True,
-					mode = 'average_exc_pad'
-				)
+			conv_out_input.append(curr_conv_out_input)
+			conv_out_output.append(curr_conv_out_output)
 
-			if POOL == True:
-				curr_conv_out_input = T.signal.pool.pool_2d(
-					curr_conv_out_input,
-					(2,1),
-					ignore_border=True,
-					mode = 'average_exc_pad'
-				)
+		input_feature_map = T.concatenate(conv_out_input, axis= 1) # (batch_size, 1024, input_length, 1)
+		output_feature_map = T.concatenate(conv_out_output, axis= 1) # (batch_size, 1024, input_length, 1)
 
-				curr_conv_out_output = T.signal.pool.pool_2d(
-					curr_conv_out_output,
-					(2,1),
-					ignore_border=True,
-					mode = 'average_exc_pad'
-				)
-
-
-			# conv_out_input.append(curr_conv_out_input)
-			# conv_out_output.append(curr_conv_out_output)
-
-		# input_feature_map = T.concatenate(conv_out_input, axis= 1) # (batch_size, 1024, input_length, 1)
-		# output_feature_map = T.concatenate(conv_out_output, axis= 1) # (batch_size, 1024, input_length, 1)
-
-		# input_feature_map = T.nnet.relu(input_feature_map)
-		# output_feature_map = T.nnet.relu(output_feature_map)
+		input_feature_map = T.nnet.relu(input_feature_map)
+		output_feature_map = T.nnet.relu(output_feature_map)
 
 		input_features_reshaped = curr_conv_out_input.dimshuffle(1,0,2,3)
 		output_features_reshaped = curr_conv_out_output.dimshuffle(1,0,2,3)
@@ -214,6 +126,9 @@ for POOL in (False, True):
 		# input_feature_map = T.sum(dotted_input_feature_map, axis = 1)
 		# output_feature_map = T.sum(dotted_output_feature_map, axis = 1)
 		# else:
+		input_feature_map = dotted_input_feature_map
+		output_feature_map = dotted_output_feature_map
+
 		input_feature_map = dotted_input_feature_map
 		input_feature_norm = T.sqrt(T.sum(input_feature_map*input_feature_map))
 
@@ -247,11 +162,11 @@ for POOL in (False, True):
 		)
 
 		for i, path in enumerate(batch_paths):
-		    data, fs, enc = scikits.audiolab.flacread(path)
-		    data = numpy.float32(data)
-		    data = data[:INPUT_LEN]
-		    assert(data.max() - data.min() > 0)
-		    batch[i, :len(data)] = (data - data.min())/(data.max() - data.min()) - 0.5
+			data, fs, enc = scikits.audiolab.flacread(path)
+			data = numpy.float32(data)
+			data = data[:INPUT_LEN]
+			assert(data.max() - data.min() > 0)
+			batch[i, :len(data)] = (data - data.min())/(data.max() - data.min()) - 0.5
 
 
 		create_folder_if_not_there(OUTPUT_DIR)
