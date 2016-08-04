@@ -11,8 +11,10 @@ from layers import *
 from wav_utils import write_audio_file
 from generic_utils import *
 
-import sys 
+import sys
 sys.setrecursionlimit(50000)
+
+import scipy.optimize
 
 def round_to(x, y):
     """round x up to the nearest y"""
@@ -22,7 +24,7 @@ n_files = 1000
 
 GRAD_CLIP = 1.0
 BITRATE = 16000
-DATA_PATH = "/Tmp/kumarkun/blizzard_flac"
+DATA_PATH = "/Tmp/kumarkun/blizzard_small/flac"
 OUTPUT_DIR = "/Tmp/kumarkun/generated_blizz_single"
 BATCH_SIZE = 1
 INPUT_LEN = 16000
@@ -34,10 +36,10 @@ POOL = False
 num_layers_filter_sizes = [
 				(2, 11),
 				(2, 51),
-				(2, 501), 
-				(2, 999), 
+				(2, 501),
+				(2, 999),
 				(2, 3999),
-				(2, 6999),
+				(2, 7999),
 				(3, 11),
 				(3, 99),
 				(3, 333),
@@ -46,7 +48,7 @@ num_layers_filter_sizes = [
 				(4, 251),
 				(4, 501),
 				(4, 999),
-				(4, 1999),
+				(4, 999),
 				(5, 11),
 				(5, 51),
 				(5, 99),
@@ -70,6 +72,23 @@ num_layers_filter_sizes = [
 				(8, 81),
 				(6, 239)
 				]
+paths = [DATA_PATH+'/p{}.flac'.format(i) for i in xrange(n_files)]
+
+batch_paths = paths[100:100+BATCH_SIZE]
+
+batch = numpy.zeros(
+    (BATCH_SIZE, INPUT_LEN),
+    dtype='float32'
+)
+
+for i, path in enumerate(batch_paths):
+    data, fs, enc = scikits.audiolab.flacread(path)
+    data = numpy.float32(data)
+    data = data[:INPUT_LEN]
+    assert(data.max() - data.min() > 0)
+    batch[i, :len(data)] = (data - data.min())/(data.max() - data.min()) - 0.5
+
+
 
 # num_layers_filter_sizes = [
 # 					(1, 24001),
@@ -93,6 +112,7 @@ num_layers_filter_sizes = [
 # 					(1, 501),
 # 					(1)
 # 				]
+
 expn = 0
 for POOL in (False, True):
 	for num_layer, filter_size in num_layers_filter_sizes:
@@ -103,22 +123,23 @@ for POOL in (False, True):
 		params = []
 		other_params = []
 
-		input_sound_ = T.matrix('input_sound') # shape = (batch_size, input_length)
-
-		output_sound_init = numpy.random.uniform(
+		output_sound_init = numpy.array(
+			numpy.random.uniform(
 		        low=-0.5,
 		        high=0.5,
-		        size=(BATCH_SIZE, INPUT_LEN)
-		    ).astype(numpy.float32)
+		        size=(INPUT_LEN,)
+		    ),
+		    order='F',
+		    copy=False
+		)
 
-		output_sound_var = theano.shared(output_sound_init, name="output_sound")
+		input_sound_var = theano.shared(batch[0], name="input_sound")
+		output_sound_ = T.vector('output_sound_')
 
-		params.append(output_sound_var)
+		input_sound_ = T.ones_like(output_sound_)*input_sound_var
 
-		output_sound = T.ones_like(input_sound_)*output_sound_var
-
-		input_sound = input_sound_.dimshuffle(0,'x', 1, 'x') # shape = (batch_size, 1, input_length, 1)
-		output_sound = output_sound.dimshuffle(0,'x', 1, 'x') # shape = (batch_size, 1, input_length, 1)
+		input_sound = input_sound_.dimshuffle('x','x', 0, 'x') # shape = (batch_size, 1, input_length, 1)
+		output_sound = output_sound_.dimshuffle('x','x', 0, 'x') # shape = (batch_size, 1, input_length, 1)
 
 		# filter_sizes = [3, 5, 11, 21, 41, 81, 161, 321]
 		# filter_sizes = [3, 5, 11, 21]
@@ -134,16 +155,16 @@ for POOL in (False, True):
 			print "{}".format(1 if i == 0 else DIM)
 
 			current_filter = get_conv_2d_filter(
-							(DIM, 1 if i == 0 else DIM, filter_size,1), 
-							param_list = other_params, 
-							masktype = None, 
+							(DIM, 1 if i == 0 else DIM, filter_size,1),
+							param_list = other_params,
+							masktype = None,
 							name = "filter_{}".format(filter_size)
 							)
 
 			curr_conv_out_input = T.nnet.relu(
 							T.nnet.conv2d(
-								curr_conv_out_input, 
-								current_filter, 
+								curr_conv_out_input,
+								current_filter,
 								border_mode='valid'
 							)
 						)
@@ -151,10 +172,10 @@ for POOL in (False, True):
 			curr_conv_out_output = T.signal.pool.pool_2d(
 					T.nnet.relu(
 							T.nnet.conv2d(
-								curr_conv_out_output, 
-								current_filter, 
+								curr_conv_out_output,
+								current_filter,
 								border_mode='valid'
-							) 
+							)
 					),
 					(2,1),
 					ignore_border=True,
@@ -196,11 +217,11 @@ for POOL in (False, True):
 
 
 		dotted_input_feature_map = T.dot(
-				input_features_reshaped, 
+				input_features_reshaped,
 				input_features_reshaped.dimshuffle(1,0)
 			)
 		dotted_output_feature_map = T.dot(
-				output_features_reshaped, 
+				output_features_reshaped,
 				output_features_reshaped.dimshuffle(1,0)
 			)
 		# dotted_input_feature_map = dotted_input_feature_map.reshape(
@@ -220,62 +241,40 @@ for POOL in (False, True):
 		input_feature_map = input_feature_map/ input_feature_norm
 		output_feature_map = dotted_output_feature_map/input_feature_norm
 
-		cost = T.sum((input_feature_map - output_feature_map)*(input_feature_map - output_feature_map))
+		cost = floatX(1000000)*T.sum((input_feature_map - output_feature_map)*(input_feature_map - output_feature_map))
 
-		grads = T.grad(cost, wrt=params, disconnected_inputs='warn')
-		grads = [T.clip(g, floatX(-GRAD_CLIP), floatX(GRAD_CLIP)) for g in grads]
+		grads = T.grad(cost, wrt=output_sound)
+		# grads = [T.clip(g, floatX(-GRAD_CLIP), floatX(GRAD_CLIP)) for g in grads]
 
-		lr = T.scalar('lr')
+		# lr = T.scalar('lr')
 
-		updates = lasagne.updates.adam(grads, params, learning_rate=lr)
+		# updates = lasagne.updates.adam(grads, params, learning_rate=lr)
 
-		updates = lasagne.updates.apply_nesterov_momentum(updates, params=params, momentum=0.80)
+		# updates = lasagne.updates.apply_nesterov_momentum(updates, params=params, momentum=0.80)
 
-		train_fn = theano.function([input_sound_, lr], cost, updates = updates)
+		func = theano.function([output_sound_], [cost, grads], allow_input_downcast=True)
 
-
-		paths = [DATA_PATH+'/p{}.flac'.format(i) for i in xrange(n_files)]
-
-		batch_paths = paths[100:100+BATCH_SIZE]
+		def func_x(x):
+			c, g = func(x)
+			return c, numpy.array(g, dtype='float', order='F', copy=False)
 
 		# batch_seq_len = len(scikits.audiolab.flacread(batch_paths[0])[0])
-
-
-		batch = numpy.zeros(
-		    (BATCH_SIZE, INPUT_LEN),
-		    dtype='float32'
-		)
-
-		for i, path in enumerate(batch_paths):
-		    data, fs, enc = scikits.audiolab.flacread(path)
-		    data = numpy.float32(data)
-		    data = data[:INPUT_LEN]
-		    assert(data.max() - data.min() > 0)
-		    batch[i, :len(data)] = (data - data.min())/(data.max() - data.min()) - 0.5
-
 
 		create_folder_if_not_there(OUTPUT_DIR)
 
 		costs = []
+		print "Training"
 
-		lr_val = numpy.float32(0.001)
-		prev_cost_mean = 12345678.
-		for i in range(10000):
-			cost = train_fn(batch, lr_val)
-			costs.append(cost)
-			if (i + 1) % 10 == 0:
-				curr_cost_mean = numpy.mean(costs[-40:])
-				if curr_cost_mean > prev_cost_mean:
-					lr_val = numpy.float32(lr_val/2.)
-					print "Slashing learning_rate by a factor of 2. New rate is {}".format(lr_val)
-				prev_cost_mean = curr_cost_mean
+		out_x, f, d = scipy.optimize.fmin_l_bfgs_b(
+			func_x,
+			output_sound_init,
+			bounds = [(-0.5, 0.5)]*INPUT_LEN,
+			factr= 1e7,
+			iprint=10,
+			maxiter=2000
+		)
 
-			print " Exp no. {}, iteration {}, cost {}".format(expn, i, cost)
-			if (i+1) % 250 == 0:
-				output = output_sound_var.get_value()
-				print "Saving audio...."
-				for j in range(len(output)):
-					write_audio_file("{}/iter_{}_{}_{}_{}".format(OUTPUT_DIR, i+1, OTHER_INFO,  j, cost),  BITRATE, output[j])
+		write_audio_file("{}/lbfgs_{}_{}".format(OUTPUT_DIR, OTHER_INFO, f),  BITRATE, out_x)
 
 		pickle.dump(costs, open('{}/costs_{}.pkl'.format(OUTPUT_DIR, OTHER_INFO), 'wb'))
 
