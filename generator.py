@@ -27,7 +27,7 @@ OUTPUT_DIR = "/Tmp/kumarkun/generated_blizz_single"
 BATCH_SIZE = 1
 INPUT_LEN = 16000
 SEQ_LEN = INPUT_LEN
-DIM = 5120
+DIM = 2048
 
 POOL = False
 
@@ -144,7 +144,7 @@ for POOL in (False, True):
 							T.nnet.conv2d(
 								curr_conv_out_input, 
 								current_filter, 
-								border_mode='valid'
+								border_mode='half'
 							)
 						)
 
@@ -153,7 +153,7 @@ for POOL in (False, True):
 							T.nnet.conv2d(
 								curr_conv_out_output, 
 								current_filter, 
-								border_mode='valid'
+								border_mode='half'
 							) 
 					),
 					(2,1),
